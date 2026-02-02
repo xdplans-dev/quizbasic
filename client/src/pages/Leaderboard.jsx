@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { Trophy, ArrowLeft, Calendar, Medal } from "lucide-react";
 import { motion } from "framer-motion";
@@ -6,11 +6,71 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { getLeaderboard } from "@/lib/quizStorage";
 import { getCurrentUser } from "@/lib/authStorage";
+import { getUserProfile } from "@/lib/userProfileStorage";
+import gameModes from "@/data/gameModes";
+
+const LEVEL_LABELS = {
+  easy: "Facil",
+  medium: "Medio",
+  hard: "Dificil",
+  custom: "Custom",
+};
+
+const AGE_GROUP_LABELS = {
+  "0-25": "0-25",
+  "26-50": "26-50",
+  "51-75": "51-75",
+  "76+": "76+",
+  sem_dados: "Sem dados",
+};
+
+function normalizeLabel(value) {
+  return String(value || "").toLowerCase();
+}
+
+function resolveModeId(entry) {
+  if (entry.modeId) return entry.modeId;
+  if (entry.challengeMode === "sudden_death") return "suddenDeath";
+  if (entry.challengeMode === "time_attack") return "timeAttack";
+  if (entry.challengeMode === "daily_challenge") return "dailyChallenge";
+  const label = normalizeLabel(entry.mode);
+  if (label.includes("morte")) return "suddenDeath";
+  if (label.includes("contra")) return "timeAttack";
+  if (label.includes("diario")) return "dailyChallenge";
+  return "custom";
+}
+
+function resolveDifficulty(entry) {
+  if (entry.difficultyMode) return entry.difficultyMode;
+  const label = normalizeLabel(entry.mode);
+  if (label.includes("facil")) return "easy";
+  if (label.includes("dificil")) return "hard";
+  if (label.includes("custom")) return "custom";
+  if (label.includes("medio")) return "medium";
+  return "";
+}
+
+function calculateAge(birthDate) {
+  if (!birthDate) return null;
+  const parsed = new Date(birthDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - parsed.getFullYear();
+  const monthDiff = today.getMonth() - parsed.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < parsed.getDate())) {
+    age -= 1;
+  }
+  return age;
+}
 
 export default function Leaderboard() {
   const [, setLocation] = useLocation();
   const [scores, setScores] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [filterType, setFilterType] = useState("global");
+  const [modeFilter, setModeFilter] = useState("all");
+  const [levelFilter, setLevelFilter] = useState("all");
+  const [ageFilter, setAgeFilter] = useState("all");
 
   useEffect(() => {
     const user = getCurrentUser();
@@ -22,6 +82,46 @@ export default function Leaderboard() {
     setScores(stored);
     setIsLoading(false);
   }, []);
+
+  const modeOptions = useMemo(
+    () => [
+      { id: "all", label: "Todos os modos" },
+      ...gameModes.map((mode) => ({ id: mode.id, label: mode.title })),
+    ],
+    [],
+  );
+
+  const filteredScores = useMemo(() => {
+    let list = scores;
+    if (filterType === "mode" && modeFilter !== "all") {
+      list = list.filter((entry) => resolveModeId(entry) === modeFilter);
+    }
+    if (filterType === "level" && levelFilter !== "all") {
+      list = list.filter((entry) => resolveDifficulty(entry) === levelFilter);
+    }
+    if (filterType === "age" && ageFilter !== "all") {
+      list = list.filter((entry) => (entry.ageGroup || "sem_dados") === ageFilter);
+    }
+    return list;
+  }, [scores, filterType, modeFilter, levelFilter, ageFilter]);
+
+  const profilesById = useMemo(() => {
+    const map = {};
+    scores.forEach((entry) => {
+      if (!entry.userId || map[entry.userId]) return;
+      map[entry.userId] = getUserProfile(entry.userId);
+    });
+    return map;
+  }, [scores]);
+
+  const modeLabelById = useMemo(
+    () =>
+      gameModes.reduce((acc, mode) => {
+        acc[mode.id] = mode.title;
+        return acc;
+      }, {}),
+    [],
+  );
 
   return (
     <div className="min-h-screen p-4 md:p-8 max-w-4xl mx-auto">
@@ -40,9 +140,77 @@ export default function Leaderboard() {
 
         <h1 className="text-2xl md:text-3xl font-bold font-display flex items-center gap-3">
           <Trophy className="w-8 h-8 text-primary" />
-          Hall da Fama
+          Ranking Mundial
         </h1>
       </motion.div>
+
+      <div className="glass-card rounded-2xl p-4 md:p-6 border border-white/10 shadow-2xl mb-6">
+        <div className="flex flex-wrap items-center gap-2">
+          {[
+            { id: "global", label: "Geral" },
+            { id: "mode", label: "Por modo" },
+            { id: "level", label: "Por nivel" },
+            { id: "age", label: "Por idade" },
+          ].map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setFilterType(option.id)}
+              className={cn(
+                "px-4 py-2 rounded-xl text-xs font-mono uppercase tracking-widest border transition-colors",
+                filterType === option.id
+                  ? "bg-primary text-white border-primary"
+                  : "bg-secondary/40 border-border text-muted-foreground hover:text-primary hover:border-primary/40",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-col sm:flex-row gap-3">
+          {filterType === "mode" && (
+            <select
+              value={modeFilter}
+              onChange={(event) => setModeFilter(event.target.value)}
+              className="w-full sm:w-64 bg-secondary/50 border-2 border-border rounded-xl px-4 py-2 font-mono text-sm"
+            >
+              {modeOptions.map((mode) => (
+                <option key={mode.id} value={mode.id}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {filterType === "level" && (
+            <select
+              value={levelFilter}
+              onChange={(event) => setLevelFilter(event.target.value)}
+              className="w-full sm:w-64 bg-secondary/50 border-2 border-border rounded-xl px-4 py-2 font-mono text-sm"
+            >
+              <option value="all">Todos os niveis</option>
+              <option value="easy">Facil</option>
+              <option value="medium">Medio</option>
+              <option value="hard">Dificil</option>
+              <option value="custom">Custom</option>
+            </select>
+          )}
+          {filterType === "age" && (
+            <select
+              value={ageFilter}
+              onChange={(event) => setAgeFilter(event.target.value)}
+              className="w-full sm:w-64 bg-secondary/50 border-2 border-border rounded-xl px-4 py-2 font-mono text-sm"
+            >
+              <option value="all">Todas as idades</option>
+              <option value="0-25">0-25</option>
+              <option value="26-50">26-50</option>
+              <option value="51-75">51-75</option>
+              <option value="76+">76+</option>
+              <option value="sem_dados">Sem dados</option>
+            </select>
+          )}
+        </div>
+      </div>
 
       <div className="glass-card rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
         {isLoading ? (
@@ -52,7 +220,7 @@ export default function Leaderboard() {
               Buscando melhores pontuacoes...
             </p>
           </div>
-        ) : scores.length === 0 ? (
+        ) : filteredScores.length === 0 ? (
           <div className="p-20 text-center text-muted-foreground">
             Nenhuma pontuacao registrada ainda. Seja o primeiro!
           </div>
@@ -71,7 +239,11 @@ export default function Leaderboard() {
                     Pontos
                   </th>
                   <th className="p-6 font-mono text-xs uppercase tracking-wider text-muted-foreground text-right hidden md:table-cell">
-                    Modo
+                    {filterType === "level"
+                      ? "Nivel"
+                      : filterType === "age"
+                        ? "Faixa"
+                        : "Modo"}
                   </th>
                   <th className="p-6 font-mono text-xs uppercase tracking-wider text-muted-foreground text-right hidden sm:table-cell">
                     Data
@@ -79,7 +251,7 @@ export default function Leaderboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {scores.map((entry, index) => {
+                {filteredScores.map((entry, index) => {
                   const isTop3 = index < 3;
                   const medalColor =
                     index === 0
@@ -87,6 +259,18 @@ export default function Leaderboard() {
                       : index === 1
                         ? "text-gray-300"
                         : "text-amber-600";
+                  const medalEmoji = index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉";
+                  const profile = profilesById[entry.userId];
+                  const fullName = entry.fullName || profile?.fullName || entry.nickname;
+                  const ageValue = Number.isFinite(entry.age)
+                    ? entry.age
+                    : calculateAge(profile?.birthDate);
+                  const resolvedModeId = resolveModeId(entry);
+                  const modeLabel = modeLabelById[resolvedModeId] || "Personalizado";
+                  const levelLabel =
+                    LEVEL_LABELS[resolveDifficulty(entry)] || "Indefinido";
+                  const ageLabel =
+                    AGE_GROUP_LABELS[entry.ageGroup || "sem_dados"] || "Sem dados";
 
                   return (
                     <motion.tr
@@ -106,6 +290,12 @@ export default function Leaderboard() {
                         )}
                       </td>
                       <td className="p-4 md:p-6">
+                        {isTop3 && (
+                          <div className="text-xs text-muted-foreground font-mono uppercase tracking-widest">
+                            {medalEmoji} {fullName}
+                            {Number.isFinite(ageValue) ? `, ${ageValue}` : ""}
+                          </div>
+                        )}
                         <div className="font-bold text-white group-hover:text-primary transition-colors text-lg">
                           {entry.nickname}
                         </div>
@@ -114,7 +304,11 @@ export default function Leaderboard() {
                         {entry.score.toLocaleString()}
                       </td>
                       <td className="p-4 md:p-6 text-right text-muted-foreground hidden md:table-cell text-xs">
-                        {entry.mode || "padrao"}
+                        {filterType === "level"
+                          ? levelLabel
+                          : filterType === "age"
+                            ? ageLabel
+                            : modeLabel}
                       </td>
                       <td className="p-4 md:p-6 text-right text-muted-foreground text-sm hidden sm:table-cell">
                         <span className="flex items-center justify-end gap-2">

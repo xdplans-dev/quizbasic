@@ -37,6 +37,8 @@ export const CHALLENGE_LABELS = {
   perfect_run: "perfeito",
   marathon: "maratona",
   random_chaos: "caos aleatorio",
+  time_attack: "contra o tempo",
+  daily_challenge: "desafio diario",
 };
 
 const CHAOS_MODIFIERS = [
@@ -167,6 +169,7 @@ export function normalizeSettings(input) {
     0,
     15,
   );
+  const timeLimit = Number.isFinite(input.timeLimit) ? input.timeLimit : null;
 
   return {
     nickname: input.nickname || "",
@@ -175,6 +178,9 @@ export function normalizeSettings(input) {
     challengeMode,
     questionCount,
     seed: input.seed || Date.now(),
+    timeLimit,
+    modeId: input.modeId || "",
+    dailySeed: input.dailySeed || "",
   };
 }
 
@@ -255,5 +261,13 @@ export function formatModeLabel(settings) {
   const count = settings.questionCount ? `${settings.questionCount}Q` : "padrao";
   const challenge = CHALLENGE_LABELS[settings.challengeMode] || "sem desafio";
   const chaos = settings.chaos?.label ? ` • ${settings.chaos.label}` : "";
-  return `${speed} • ${difficulty} • ${count} • ${challenge}${chaos}`;
+  const timeLimitLabel =
+    settings.challengeMode === "time_attack" && settings.timeLimit
+      ? ` • ${settings.timeLimit}s total`
+      : "";
+  const dailyLabel =
+    settings.challengeMode === "daily_challenge" && settings.dailySeed
+      ? ` • ${settings.dailySeed}`
+      : "";
+  return `${speed} • ${difficulty} • ${count} • ${challenge}${timeLimitLabel}${dailyLabel}${chaos}`;
 }

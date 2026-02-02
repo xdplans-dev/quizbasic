@@ -12,12 +12,43 @@ import {
 } from "@/lib/quizEngine";
 import {
   getQuizSettings,
+  getSessionConfig,
   saveLeaderboardEntry,
   saveQuizResults,
 } from "@/lib/quizStorage";
 import { getCurrentUser } from "@/lib/authStorage";
+import { getUserProfile } from "@/lib/userProfileStorage";
 
 const REVEAL_DELAY_MS = 1300;
+
+function calculateAge(birthDate) {
+  if (!birthDate) return null;
+  const parsed = new Date(birthDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - parsed.getFullYear();
+  const monthDiff = today.getMonth() - parsed.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < parsed.getDate())) {
+    age -= 1;
+  }
+  return age;
+}
+
+function getAgeGroup(age) {
+  if (!Number.isFinite(age)) return "sem_dados";
+  if (age <= 25) return "0-25";
+  if (age <= 50) return "26-50";
+  if (age <= 75) return "51-75";
+  return "76+";
+}
+
+function resolveModeId(settings) {
+  if (settings.modeId) return settings.modeId;
+  if (settings.challengeMode === "sudden_death") return "suddenDeath";
+  if (settings.challengeMode === "time_attack") return "timeAttack";
+  if (settings.challengeMode === "daily_challenge") return "dailyChallenge";
+  return "custom";
+}
 
 export default function Quiz() {
   const [, setLocation] = useLocation();
@@ -31,12 +62,15 @@ export default function Quiz() {
   const [resetTimerKey, setResetTimerKey] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
   const [endedEarly, setEndedEarly] = useState(false);
+  const [endedByTime, setEndedByTime] = useState(false);
+  const [globalTimerKey, setGlobalTimerKey] = useState(0);
 
   const scoreRef = useRef(0);
   const correctRef = useRef(0);
   const streakRef = useRef(0);
   const startTimeRef = useRef(Date.now());
   const answersRef = useRef([]);
+  const currentUserRef = useRef(null);
 
   useEffect(() => {
     const user = getCurrentUser();
@@ -44,7 +78,8 @@ export default function Quiz() {
       setLocation("/auth");
       return;
     }
-    const settings = getQuizSettings();
+    currentUserRef.current = user;
+    const settings = getSessionConfig() || getQuizSettings();
     if (!settings) {
       setLocation("/");
       return;
@@ -54,20 +89,37 @@ export default function Quiz() {
       nickname: user.nickname,
     });
     setQuiz(generated);
-    setTimeLeft(getQuestionDuration(generated.settings, 0));
+    const initialDuration =
+      generated.settings.challengeMode === "time_attack"
+        ? Number(generated.settings.timeLimit) || 60
+        : getQuestionDuration(generated.settings, 0);
+    setTimeLeft(initialDuration);
   }, [setLocation]);
 
   const currentQuestion = quiz?.questions[currentIndex];
   const totalQuestions = quiz?.questions.length || 0;
   const progress = totalQuestions ? ((currentIndex + 1) / totalQuestions) * 100 : 0;
+  const isTimeAttack = quiz?.settings?.challengeMode === "time_attack";
   const currentDuration = quiz
-    ? getQuestionDuration(quiz.settings, currentIndex)
+    ? isTimeAttack
+      ? Number(quiz.settings.timeLimit) || 60
+      : getQuestionDuration(quiz.settings, currentIndex)
     : 0;
 
   useEffect(() => {
-    if (!quiz) return;
+    if (!quiz || !isTimeAttack) return;
     setTimeLeft(currentDuration);
-  }, [quiz, currentDuration, resetTimerKey]);
+  }, [quiz, isTimeAttack, currentDuration, globalTimerKey]);
+
+  useEffect(() => {
+    if (!quiz || !isTimeAttack) return;
+    setGlobalTimerKey((prev) => prev + 1);
+  }, [quiz, isTimeAttack]);
+
+  useEffect(() => {
+    if (!quiz || isTimeAttack) return;
+    setTimeLeft(currentDuration);
+  }, [quiz, isTimeAttack, currentDuration, resetTimerKey]);
 
   const updateScore = useCallback((points) => {
     scoreRef.current += points;
@@ -87,12 +139,21 @@ export default function Quiz() {
     return streakRef.current;
   }, []);
 
-  const finishGame = useCallback(() => {
+  const finishGame = useCallback((options = {}) => {
     if (!quiz) return;
     const durationMs = Date.now() - startTimeRef.current;
     const total = quiz.questions.length;
     let finalScore = scoreRef.current;
     let perfectRunBonus = 0;
+    const endedEarlyValue =
+      typeof options.endedEarly === "boolean" ? options.endedEarly : endedEarly;
+    const endedByTimeValue =
+      typeof options.endedByTime === "boolean" ? options.endedByTime : endedByTime;
+    const currentUser = currentUserRef.current;
+    const userProfile = getUserProfile(currentUser?.id);
+    const age = calculateAge(userProfile?.birthDate);
+    const ageGroup = getAgeGroup(age);
+    const modeId = resolveModeId(quiz.settings);
 
     if (quiz.settings.challengeMode === "perfect_run" && correctRef.current === total) {
       perfectRunBonus = Math.floor(finalScore * 0.25);
@@ -111,7 +172,8 @@ export default function Quiz() {
       settings: quiz.settings,
       answers: answersRef.current,
       perfectRunBonus,
-      endedEarly,
+      endedEarly: endedEarlyValue,
+      endedByTime: endedByTimeValue,
       date: new Date().toISOString(),
     };
 
@@ -122,10 +184,18 @@ export default function Quiz() {
       score: results.score,
       mode: results.modeLabel,
       date: results.date,
+      userId: currentUser?.id || "",
+      fullName: userProfile?.fullName || "",
+      modeId,
+      difficultyMode: quiz.settings.difficultyMode,
+      speedMode: quiz.settings.speedMode,
+      challengeMode: quiz.settings.challengeMode,
+      age,
+      ageGroup,
     });
 
     setLocation("/result");
-  }, [endedEarly, quiz, setLocation]);
+  }, [endedByTime, endedEarly, quiz, setLocation]);
 
   const handleNextQuestion = useCallback(() => {
     if (!quiz) return;
@@ -133,11 +203,13 @@ export default function Quiz() {
       setCurrentIndex((prev) => prev + 1);
       setSelectedOption(null);
       setIsAnswerRevealed(false);
-      setResetTimerKey((prev) => prev + 1);
+      if (!isTimeAttack) {
+        setResetTimerKey((prev) => prev + 1);
+      }
     } else {
       finishGame();
     }
-  }, [currentIndex, finishGame, quiz]);
+  }, [currentIndex, finishGame, isTimeAttack, quiz]);
 
   const recordAnswer = useCallback(
     (index, timedOut = false) => {
@@ -158,8 +230,18 @@ export default function Quiz() {
           })
         : null;
 
+      let totalPoints = scoring?.total || 0;
+      let suddenDeathMultiplier = 1;
+      let suddenDeathBonus = 0;
+
+      if (isCorrect && scoring && quiz.settings.challengeMode === "sudden_death") {
+        suddenDeathMultiplier = 1 + nextStreak * 0.1;
+        totalPoints = Math.round(scoring.total * suddenDeathMultiplier);
+        suddenDeathBonus = totalPoints - scoring.total;
+      }
+
       if (isCorrect && scoring) {
-        updateScore(scoring.total);
+        updateScore(totalPoints);
         updateCorrect(true);
       }
 
@@ -175,10 +257,12 @@ export default function Quiz() {
         timedOut,
         timeLeft: safeTimeLeft,
         timeTotal: currentDuration,
-        points: scoring?.total || 0,
+        points: totalPoints,
         basePoints: scoring?.basePoints || 0,
         timeBonus: scoring?.timeBonus || 0,
         streakBonus: scoring?.streakBonus || 0,
+        suddenDeathMultiplier,
+        suddenDeathBonus,
       };
 
       const nextAnswers = [...answersRef.current];
@@ -190,7 +274,7 @@ export default function Quiz() {
 
       if (quiz.settings.challengeMode === "sudden_death" && !isCorrect) {
         setEndedEarly(true);
-        setTimeout(() => finishGame(), REVEAL_DELAY_MS);
+        setTimeout(() => finishGame({ endedEarly: true }), REVEAL_DELAY_MS);
         return;
       }
 
@@ -216,8 +300,14 @@ export default function Quiz() {
   };
 
   const handleTimeout = useCallback(() => {
+    if (!quiz) return;
+    if (quiz.settings.challengeMode === "time_attack") {
+      setEndedByTime(true);
+      finishGame({ endedByTime: true });
+      return;
+    }
     recordAnswer(null, true);
-  }, [recordAnswer]);
+  }, [finishGame, quiz, recordAnswer]);
 
   if (!quiz) {
     return (
@@ -294,7 +384,7 @@ export default function Quiz() {
           duration={currentDuration}
           onTimeout={handleTimeout}
           isRunning={!isAnswerRevealed}
-          resetKey={resetTimerKey}
+          resetKey={isTimeAttack ? globalTimerKey : resetTimerKey}
           onTick={setTimeLeft}
         />
       </div>

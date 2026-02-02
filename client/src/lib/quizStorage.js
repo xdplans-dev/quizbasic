@@ -4,6 +4,7 @@ const STORAGE_KEYS = {
   settings: "xdquiz_settings",
   results: "xdquiz_results",
   leaderboard: "xdquiz_leaderboard",
+  sessionConfig: "xdquiz:sessionConfig",
 };
 
 function getStoredJson(key, fallback) {
@@ -32,6 +33,23 @@ export function saveQuizSettings(settings) {
 
 export function getQuizSettings() {
   return getStoredJson(STORAGE_KEYS.settings, null);
+}
+
+export function saveSessionConfig(config) {
+  setStoredJson(STORAGE_KEYS.sessionConfig, config);
+}
+
+export function getSessionConfig() {
+  return getStoredJson(STORAGE_KEYS.sessionConfig, null);
+}
+
+export function clearSessionConfig() {
+  if (!isBrowser) return;
+  try {
+    window.localStorage.removeItem(STORAGE_KEYS.sessionConfig);
+  } catch (error) {
+    // ignore storage errors
+  }
 }
 
 export function saveQuizResults(results) {

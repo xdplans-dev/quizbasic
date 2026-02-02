@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Terminal, Trophy, Play } from "lucide-react";
 import { motion } from "framer-motion";
-import { getQuizSettings, saveQuizSettings } from "@/lib/quizStorage";
+import { getQuizSettings, saveQuizSettings, saveSessionConfig } from "@/lib/quizStorage";
 import { getCurrentUser, logoutUser } from "@/lib/authStorage";
 
 export default function Home() {
@@ -57,15 +57,20 @@ export default function Home() {
           ? Math.max(0, Math.min(15, Number(customCount) || 0))
           : Number(countMode);
 
-    saveQuizSettings({
+    const nextSettings = {
       nickname: currentUser.nickname,
       speedMode,
       difficultyMode,
       questionCount,
       challengeMode,
-    });
+      modeId: "custom",
+      seed: Date.now(),
+    };
 
-    setLocation("/quiz");
+    saveQuizSettings(nextSettings);
+    saveSessionConfig(nextSettings);
+
+    setLocation("/play");
   };
 
   return (
@@ -116,18 +121,6 @@ export default function Home() {
           <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 pointer-events-none"></div>
 
           <form onSubmit={handleStart} className="space-y-6 relative z-10">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground ml-1">
-                NICKNAME DO RANKING
-              </label>
-              <div className="w-full bg-secondary/40 border-2 border-border rounded-xl px-5 py-4 text-lg font-mono">
-                {currentUser?.nickname || "—"}
-              </div>
-              <p className="text-xs text-muted-foreground/80 ml-1">
-                Seu nickname foi definido no cadastro e nao pode ser alterado.
-              </p>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-xs uppercase tracking-widest text-muted-foreground font-bold ml-1">

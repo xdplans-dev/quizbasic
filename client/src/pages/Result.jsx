@@ -99,6 +99,11 @@ export default function Result() {
               Finalizado por morte subita
             </div>
           )}
+          {results.endedByTime && (
+            <div className="mt-2 text-xs text-muted-foreground font-mono uppercase tracking-widest">
+              Tempo esgotado
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 my-10">
             <div className="bg-secondary/40 rounded-2xl p-6 border border-white/5">
@@ -161,7 +166,7 @@ export default function Result() {
             </button>
 
             <button
-              onClick={() => setLocation("/quiz")}
+              onClick={() => setLocation("/play")}
               className="px-8 py-3 rounded-xl font-bold bg-primary text-white hover:bg-primary/90 hover:-translate-y-0.5 shadow-lg shadow-primary/25 transition-all duration-200 flex items-center justify-center gap-2"
             >
               <RotateCcw className="w-4 h-4" />
