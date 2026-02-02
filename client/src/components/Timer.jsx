@@ -1,38 +1,35 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 
-interface TimerProps {
-  duration: number; // in seconds
-  onTimeout: () => void;
-  isRunning: boolean;
-  resetKey: number; // Increment to reset timer
-}
-
-export function Timer({ duration, onTimeout, isRunning, resetKey }: TimerProps) {
+export function Timer({ duration, onTimeout, isRunning, resetKey, onTick }) {
   const [timeLeft, setTimeLeft] = useState(duration);
+  const timeoutTriggeredRef = useRef(false);
 
   useEffect(() => {
     setTimeLeft(duration);
-  }, [resetKey, duration]);
+    timeoutTriggeredRef.current = false;
+    if (onTick) onTick(duration);
+  }, [resetKey, duration, onTick]);
 
   useEffect(() => {
-    if (!isRunning || timeLeft <= 0) return;
+    if (!isRunning) return;
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 0.1) {
-          clearInterval(interval);
+        const next = Math.max(0, Number((prev - 0.1).toFixed(1)));
+        if (onTick) onTick(next);
+        if (next <= 0 && !timeoutTriggeredRef.current) {
+          timeoutTriggeredRef.current = true;
           onTimeout();
-          return 0;
         }
-        return prev - 0.1;
+        return next;
       });
     }, 100);
 
     return () => clearInterval(interval);
-  }, [isRunning, timeLeft, onTimeout]);
+  }, [isRunning, onTick, onTimeout]);
 
-  const percentage = (timeLeft / duration) * 100;
+  const percentage = duration > 0 ? (timeLeft / duration) * 100 : 0;
   const isUrgent = timeLeft < 5;
 
   return (
@@ -45,10 +42,14 @@ export function Timer({ duration, onTimeout, isRunning, resetKey }: TimerProps) 
           {Math.ceil(timeLeft)}s
         </span>
       </div>
-      
+
       <div className="h-2 w-full bg-secondary/50 rounded-full overflow-hidden backdrop-blur-sm border border-white/5">
         <motion.div
-          className={`h-full ${isUrgent ? "bg-destructive shadow-[0_0_10px_rgba(239,68,68,0.5)]" : "bg-primary shadow-[0_0_10px_rgba(124,58,237,0.5)]"}`}
+          className={`h-full ${
+            isUrgent
+              ? "bg-destructive shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+              : "bg-primary shadow-[0_0_10px_rgba(124,58,237,0.5)]"
+          }`}
           initial={{ width: "100%" }}
           animate={{ width: `${percentage}%` }}
           transition={{ ease: "linear", duration: 0.1 }}

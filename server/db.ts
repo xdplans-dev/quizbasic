@@ -1,18 +1,25 @@
 import { MongoClient } from "mongodb";
 
-const mongoUri = process.env.MONGODB_URI;
+let clientPromise: Promise<MongoClient> | null = null;
 
-if (!mongoUri) {
-  throw new Error(
-    "MONGODB_URI must be set. Did you forget to provision a database?",
-  );
+async function getClient() {
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    throw new Error(
+      "MONGODB_URI must be set. Did you forget to provision a database?",
+    );
+  }
+
+  if (!clientPromise) {
+    const client = new MongoClient(mongoUri);
+    clientPromise = client.connect();
+  }
+
+  return clientPromise;
 }
 
-const client = new MongoClient(mongoUri);
-const clientPromise = client.connect();
-
 export async function getDb() {
-  const connectedClient = await clientPromise;
+  const connectedClient = await getClient();
   const dbName = process.env.MONGODB_DB;
   return dbName ? connectedClient.db(dbName) : connectedClient.db();
 }

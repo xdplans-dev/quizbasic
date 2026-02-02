@@ -8,11 +8,13 @@ import Home from "@/pages/Home";
 import Quiz from "@/pages/Quiz";
 import Result from "@/pages/Result";
 import Leaderboard from "@/pages/Leaderboard";
+import Auth from "@/pages/Auth";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/auth" component={Auth} />
       <Route path="/quiz" component={Quiz} />
       <Route path="/result" component={Result} />
       <Route path="/leaderboard" component={Leaderboard} />
@@ -21,7 +23,7 @@ function Router() {
   );
 }
 
-function App() {
+export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -31,5 +33,3 @@ function App() {
     </QueryClientProvider>
   );
 }
-
-export default App;
